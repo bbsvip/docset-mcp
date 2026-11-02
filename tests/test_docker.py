@@ -85,7 +85,9 @@ def test_docker_files_and_mounts():
     assert 'ENTRYPOINT ["python", "/app/source/app.py"]' in dockerfile
     assert 'CMD ["serve-http",' in dockerfile
     assert 'USER 10001:10001' in dockerfile
-    assert '127.0.0.1:${DOCSET_PORT:-8765}:8765' in compose
+    assert '0.0.0.0:8777:8765' in compose
+    assert '192.168.1.11,192.168.1.11:*' in compose
+    assert '127.0.0.1,127.0.0.1:*' in compose
     assert 'name: docset-agent-mcp-data' in compose
     assert 'profiles: ["bulk"]' in compose
     assert 'venv/' in ignore and '.venv/' in ignore and 'data/' in ignore

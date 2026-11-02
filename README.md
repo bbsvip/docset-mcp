@@ -44,14 +44,14 @@ docker compose run --rm mcp reindex Python_3
 docker compose exec mcp python /app/source/app.py search 'json.loads' --docset Python_3
 ```
 
-Your MCP endpoint is **`http://127.0.0.1:8765/mcp`**. The default Compose configuration binds it **only to the local host** and does not provide authentication.
+Your MCP endpoint is **`http://192.168.1.11:8777/mcp`** when deployed on a Docker host with that LAN IP (local clients can also use `http://127.0.0.1:8777/mcp`). The Compose configuration publishes port **8777** on all host interfaces and includes `192.168.1.11` in the MCP Host allowlist. **There is no HTTP authentication:** restrict inbound access to trusted devices using the host firewall; do not port-forward this service to the Internet.
 
 ### Connect an MCP client
 
 For [Pi](https://pi.dev/) with native MCP support:
 
 ```bash
-pi mcp add docsets --url http://127.0.0.1:8765/mcp
+pi mcp add docsets --url http://192.168.1.11:8777/mcp
 pi mcp list
 ```
 
@@ -173,13 +173,13 @@ For stdio, set your MCP client command to the absolute path of the venv Python e
 | Setting | Default | Description |
 | --- | --- | --- |
 | `DOCSET_HOME` | `/data` in Docker; OS user data dir otherwise | Persistent archives, indexes, cache, and logs. |
-| `DOCSET_PORT` | `8765` | Host port used by Docker Compose. |
+| HTTP port (Compose) | `8777` | Fixed host port in `compose.yaml` (container still listens on `8765`). |
 | `DOCSET_MAX_ARCHIVE_GB` | `4` | Maximum download size for an archive, in GiB. |
 | `DOCSET_MAX_EXPANDED_GB` | `12` | Maximum expanded size for a docset, in GiB. |
 | `DOCSET_MAX_FILES` | `250000` | Maximum archive entries. |
-| `DOCSET_MCP_ALLOWED_HOSTS` | Loopback and Docker service hostnames | HTTP Host allowlist; adjust only for a trusted deployment. |
+| `DOCSET_MCP_ALLOWED_HOSTS` | Loopback, Docker service name, `192.168.1.11` | HTTP Host allowlist. Set this to the Docker **server** IP/hostname when deploying elsewhere (include both the bare address and `:*`). |
 
-Copy `.env.example` to `.env` for Compose port/resource limits. **Do not publish the unauthenticated MCP endpoint to the Internet or an untrusted LAN**; tools can write files and start downloads. Use a private tunnel or an authenticated reverse proxy when remote access is necessary.
+Copy `.env.example` to `.env` for resource limits and to customize the server IP allowlist. **Do not publish the unauthenticated MCP endpoint to the Internet or an untrusted LAN**; tools can write files and start downloads. Use a private tunnel or an authenticated reverse proxy when remote access is necessary.
 
 The docset catalog is sourced from the [Zeal backend](https://github.com/zealdocs/backend), whose endpoints are **not a stable public API**. If the full catalog fails, a smaller legacy catalog is used. Check `complete_catalog` before assuming that all available sources have been enumerated. Docsets may also have incomplete indexes, outdated content, or unavailable mirror URLs.
 

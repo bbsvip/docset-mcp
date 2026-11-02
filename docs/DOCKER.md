@@ -18,20 +18,20 @@ docker compose up -d mcp
 docker compose ps
 ```
 
-Default endpoint: `http://127.0.0.1:8765/mcp`.
+LAN endpoint (when the Docker host is `192.168.1.11`): `http://192.168.1.11:8777/mcp`. Localhost on the Docker host: `http://127.0.0.1:8777/mcp`.
 
-The server binds to the host's **loopback address only**. By default, the Compose service
-also auto-installs explicitly requested docsets, auto-indexes their content, and
-periodically refreshes the catalog; see [AUTOMATION.md](AUTOMATION.md). If port `8765` is taken, copy `.env.example` to `.env` and edit `DOCSET_PORT`. The path `/mcp` remains unchanged.
+The server publishes host port **8777** on all interfaces (`0.0.0.0:8777:8765`). The container continues to listen on port **8765**. By default, the Compose service also auto-installs explicitly requested docsets, auto-indexes their content, and periodically refreshes the catalog; see [AUTOMATION.md](AUTOMATION.md). To use a different host port, edit the `ports` mapping in `compose.yaml`. The path `/mcp` remains unchanged.
+
+**Security:** this server has no HTTP authentication. Restrict access to the trusted LAN using the host firewall and never forward port 8777 on the Internet-facing router. MCP Host validation checks the server address in the request header; it does **not** filter clients by their IP address.
 
 ### Configure Pi
 
 ```bash
-pi mcp add docsets --url http://127.0.0.1:8765/mcp
+pi mcp add docsets --url http://192.168.1.11:8777/mcp
 pi mcp list
 ```
 
-Pi must run on the same host for `127.0.0.1` to work. If Pi runs in another container on the same Compose network, the endpoint would be `http://mcp:8765/mcp`; its HTTP Host must be allowed by `DOCSET_MCP_ALLOWED_HOSTS` (the default includes `mcp`).
+Pi may run on any device able to reach the trusted LAN address. If the Docker host uses another IP, set `DOCSET_MCP_ALLOWED_HOSTS` in `.env` to include that **server** IP both with and without `:*` (for example `192.168.1.20,192.168.1.20:*`) and restart the service. If Pi runs in a container on the same Compose network, the internal endpoint is `http://mcp:8765/mcp`; the default Host allowlist includes `mcp`.
 
 Other clients supporting **Streamable HTTP** can use the same endpoint. Avoid registering the HTTP and stdio variants under different names in the same agent unless you intentionally want duplicate tools.
 
@@ -126,7 +126,8 @@ docker build -t docset-agent-mcp:local .
 docker volume create docset-agent-mcp-data
 
 docker run -d --name docset-agent-mcp --restart unless-stopped \
-  -p 127.0.0.1:8765:8765 \
+  -p 0.0.0.0:8777:8765 \
+  -e DOCSET_MCP_ALLOWED_HOSTS="127.0.0.1,127.0.0.1:*,localhost,localhost:*,mcp,mcp:*,192.168.1.11,192.168.1.11:*" \
   -v docset-agent-mcp-data:/data \
   -e DOCSET_AUTO_INSTALL=missing \
   -e DOCSET_AUTO_INDEX_CONTENT=true \
@@ -151,7 +152,7 @@ docker logs -f docset-downloader
 docker rm docset-downloader
 ```
 
-Do **not** start a separate HTTP container on port 8765 at the same time as the Compose `mcp` service.
+Do **not** start a separate HTTP container on host port 8777 at the same time as the Compose `mcp` service.
 
 ## 5. Stdio mode (no HTTP port)
 
@@ -190,15 +191,15 @@ For host bind mounts on Linux, the container runs under UID/GID `10001:10001`. E
 
 - The HTTP MCP server **has no authentication** and exposes download/write tools.
 - Do not publish its port to the public Internet or an untrusted LAN. Use a protected tunnel or authenticated TLS proxy for remote connections.
-- Host/Origin validation is enabled; `DOCSET_MCP_ALLOWED_HOSTS` allows trusted local hostnames only by default.
+- Host/Origin validation is enabled; `DOCSET_MCP_ALLOWED_HOSTS` permits loopback, the Docker service hostname, and `192.168.1.11` by default. Configure your own **server** IP if different. This is not client-IP filtering.
 - The remote catalog API is upstream-dependent, and docset archives should be treated as untrusted inputs.
 
 ## 7. Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| Connection refused on port 8765 | `docker compose ps`, `docker compose logs mcp`, and `DOCSET_PORT` in `.env`. |
-| HTTP Host rejected | Correct hostname and `DOCSET_MCP_ALLOWED_HOSTS`; keep access restricted. |
+| Connection refused on port 8777 | `docker compose ps`, `docker compose logs mcp`, and the `0.0.0.0:8777:8765` port mapping; check host firewall rules. |
+| HTTP 421 Invalid Host header | Put the Docker **server** IP in `DOCSET_MCP_ALLOWED_HOSTS` (bare and `:*`), then `docker compose up -d --force-recreate mcp`. |
 | `catalog sync` fails | Network/DNS, upstream availability, and the Zeal backend API. |
 | `complete_catalog: false` | A smaller legacy fallback catalog was used; bulk download is not complete coverage. |
 | Archive too large | `DOCSET_MAX_ARCHIVE_GB` / `DOCSET_MAX_EXPANDED_GB` and free disk space. |
