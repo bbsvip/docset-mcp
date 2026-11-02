@@ -16,14 +16,15 @@ x-docset-common: &docset-common
     DOCSET_CATALOG_REFRESH_HOURS: ${DOCSET_CATALOG_REFRESH_HOURS:-24}
     DOCSET_FTS_MAX_PAGES: ${DOCSET_FTS_MAX_PAGES:-100000}
     DOCSET_FTS_BACKFILL_ON_START: ${DOCSET_FTS_BACKFILL_ON_START:-true}
-    DOCSET_MCP_ALLOWED_HOSTS: ${DOCSET_MCP_ALLOWED_HOSTS:-127.0.0.1,127.0.0.1:*,localhost,localhost:*,[::1],[::1]:*,mcp,mcp:*}
+    DOCSET_MCP_ALLOWED_HOSTS: ${DOCSET_MCP_ALLOWED_HOSTS:-127.0.0.1,127.0.0.1:*,localhost,localhost:*,[::1],[::1]:*,mcp,mcp:*,192.168.1.11,192.168.1.11:*}
 
 services:
   mcp:
     <<: *docset-common
     ports:
-      # Intentionally localhost-only: this MCP exposes write/download tools and has no authentication.
-      - "127.0.0.1:${DOCSET_PORT:-8765}:8765"
+      # Exposed on the host network for trusted LAN clients. NO HTTP authentication.
+      # Keep this port blocked at the router/host firewall for untrusted networks.
+      - "0.0.0.0:8777:8765"
     command: ["serve-http", "--host", "0.0.0.0", "--port", "8765"]
     restart: unless-stopped
     healthcheck:
