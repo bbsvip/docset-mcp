@@ -1,6 +1,6 @@
 # Docset Agent MCP
 
-**Offline API documentation for AI coding agents — without installing Dash or Zeal.**
+**Self-hosted offline API documentation for AI coding agents — without installing Dash or Zeal.**
 
 Docset Agent MCP is a standalone [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server and command-line tool for downloading, indexing, and searching documentation in the Dash/Zeal `.docset` format. It supports both **Streamable HTTP** (a persistent Docker service) and **stdio** (launched by your MCP client).
 
@@ -11,7 +11,10 @@ Docset Agent MCP is a standalone [Model Context Protocol (MCP)](https://modelcon
 - **No Dash, Zeal, Node.js, or host-side Python required** when running with Docker.
 - Discover and download a single docset or **the entire upstream catalog** (with rate limiting and resumable downloads).
 - Search API symbols offline through SQLite; read an individual HTML page or section with a bounded response length.
-- Optional SQLite **FTS5** indexing/search for documentation page content (not semantic search).
+- Automatic SQLite **FTS5** indexing/search after installation (configurable; not semantic search).
+- **On-demand installation** when an agent searches an explicitly named missing docset.
+- **Scheduled catalog refresh** with a resilient offline cache (every 24 hours by default).
+- Optional background FTS backfill for docsets installed before this version.
 - MCP tools for searching, reading, catalog updates, installation, and bulk-download progress.
 - Runs on Windows, macOS, and Linux wherever Python or Docker is supported.
 - Persistent documentation stored outside `source/` and Python virtual environments.
@@ -71,6 +74,56 @@ Re-run the downloader after interruptions; installed docsets are skipped unless 
 
 **Changes and upgrades:** [Changelog](CHANGELOG.md). **More detailed setup:** [Docker guide](docs/DOCKER.md) · [Quick-start and CLI guide](docs/QUICKSTART.md) · [Agent prompt and usage guidance](docs/AGENT_PROMPT.md)
 
+## Automatic documentation management (enabled in Docker Compose)
+
+With the default Compose settings, the server can download documentation **only when the
+agent specifies an exact docset name/ID**. No installation of Dash or Zeal is required.
+
+```bash
+# Inspect the catalog (the server also refreshes it in the background)
+docker compose run --rm mcp catalog list --query Python
+
+# This searches Python_3. If Python_3 is missing, it downloads and indexes it.
+docker compose exec mcp python /app/source/app.py search 'json.loads' --docset Python_3
+
+# Full-text results work automatically too; FTS5 is built if missing.
+docker compose exec mcp python /app/source/app.py search-content 'Deserialize JSON' --docset Python_3
+
+# Optional: backfill FTS5 for every docset already installed, without re-downloading.
+docker compose exec mcp python /app/source/app.py index-content --all --missing-only
+```
+
+An agent calls MCP `search_docs(query="json.loads", docset="Python_3")` to
+trigger the same flow. **A search without `docset` only searches installed data**;
+it will not guess a framework or download the entire catalog. Use `search_catalog`
+to find the exact name when needed. `read_doc` and `search_content` can also
+install an explicitly named missing docset. This feature is opt-in for the
+native Python CLI unless the environment variables are set.
+
+| Environment variable | Docker Compose default | Behavior |
+| --- | --- | --- |
+| `DOCSET_AUTO_INSTALL` | `missing` | `missing` installs an explicitly requested docset; `off` disables automatic installations. |
+| `DOCSET_AUTO_INDEX_CONTENT` | `true` | Build FTS5 after downloads; also build on first full-text query when missing. |
+| `DOCSET_REFRESH_CATALOG_PERIODICALLY` | `true` | Keep the downloaded catalog updated in a daemon thread while the MCP server runs. |
+| `DOCSET_CATALOG_REFRESH_HOURS` | `24` | Refresh if the cache is older than this many hours; keep existing cache when offline. |
+| `DOCSET_FTS_MAX_PAGES` | `100000` | Maximum HTML pages per docset for FTS5 (reaching the limit means a partial index). |
+| `DOCSET_FTS_BACKFILL_ON_START` | `true` | Start one background pass over installed docsets that lack FTS5 when MCP starts. |
+
+The catalog updater and FTS backfill run independently of MCP request handling. The FTS
+process can consume substantial CPU and disk space for large docsets. To disable background
+backfill but keep on-demand indexing, set `DOCSET_FTS_BACKFILL_ON_START=false`.
+Automatic installations are synchronous for the requesting MCP tool, so the first search
+for a large docset can take longer. Download locking prevents conflicting installs.
+
+Changing the settings does **not** delete previously installed docsets. To apply changes:
+
+```bash
+docker compose up -d --build --force-recreate mcp
+```
+
+Refer to [Automation and configuration](docs/AUTOMATION.md) for the entire lifecycle,
+resource limits, error handling, and how to disable any of these features.
+
 ## MCP tools
 
 | Tool | Purpose |
@@ -84,7 +137,7 @@ Re-run the downloader after interruptions; installed docsets are skipped unless 
 | `bulk_download_start` | Launch a local bulk downloader subprocess. |
 | `bulk_download_status` | Inspect bulk-download progress and recent log lines. |
 | `reindex_docset` | Rebuild symbol indexes from an installed docset (accepts its name or full ID). |
-| `index_content` | Build an optional full-text SQLite FTS5 index for one docset. |
+| `index_content` | Build or rebuild a full-text SQLite FTS5 index for one docset. |
 | `search_content` | Search the full-text index, if built. |
 
 A named MCP prompt, **`documentation_research`**, is also exposed to clients that support MCP prompts. It provides an API-research workflow for the model. Server instructions and tool descriptions are written in English; see [Agent guide](docs/AGENT_PROMPT.md).
@@ -138,7 +191,7 @@ python -m pytest -q tests
 
 Offline test fixtures cover download and extraction, traversal/symlink rejection, SQLite search, HTML section extraction, full-text indexing, CLI transport dispatch, and Docker configuration. **These tests are not a substitute for a real Docker build, a live mirror download, or an MCP handshake**, which should be performed before claiming production readiness.
 
-Current limitations: no semantic/vector search, no automated dependency-version discovery, no authentication, no docset browser GUI, and no promise that a downloaded docset is the latest version of a framework. The indexer supports both legacy `searchIndex` and standard Core Data (`ZTOKEN`) docsets; uncommon custom database schemas can still require additional adapters.
+Current limitations: no semantic/vector search, no automatic inference of a docset from an unfiltered query, no automated dependency-version discovery, no authentication, no docset browser GUI, and no promise that a downloaded docset is the latest version of a framework. The indexer supports both legacy `searchIndex` and standard Core Data (`ZTOKEN`) docsets; uncommon custom database schemas can still require additional adapters.
 
 ## Licensing and upstream usage
 

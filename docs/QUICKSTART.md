@@ -39,6 +39,7 @@ python source/app.py download --all --workers 2 --delay 2
 python source/app.py search 'json.loads' --docset Python_3
 python source/app.py read 'com.kapeli.dash:Python_3::library/json.html#json.loads'
 python source/app.py index-content Python_3
+python source/app.py index-content --all --missing-only
 python source/app.py search-content 'deserialize JSON' --docset Python_3
 python source/app.py reindex Python_3
 python source/app.py reindex --all --failed-only
@@ -89,7 +90,39 @@ On Windows use absolute Windows paths to `venv\Scripts\python.exe` and `source\a
 1. List installed docsets, and identify the closest matching technology and version.
 2. Search exact symbols with `search_docs` before using broad full-text queries.
 3. Read the returned references with `read_doc`, using a bounded `max_chars` value.
-4. Build a full-text index (`index_content`) only if symbol search is insufficient.
+4. With `DOCSET_AUTO_INDEX_CONTENT=true`, full-text indexes are built automatically;
+   otherwise build one manually with `index-content`.
 5. State the docset/version used and warn about any dependency version mismatch.
 
 See [AGENT_PROMPT.md](AGENT_PROMPT.md) for a ready-to-copy agent instruction.
+
+## Enable automatic behavior for native Python
+
+The Docker Compose service enables all three features by default. For a direct Python
+installation, set the environment before launching both MCP and CLI processes:
+
+```bash
+export DOCSET_AUTO_INSTALL=missing
+export DOCSET_AUTO_INDEX_CONTENT=true
+export DOCSET_REFRESH_CATALOG_PERIODICALLY=true
+export DOCSET_CATALOG_REFRESH_HOURS=24
+export DOCSET_FTS_BACKFILL_ON_START=true
+python source/app.py serve
+```
+
+PowerShell:
+
+```powershell
+$env:DOCSET_AUTO_INSTALL = 'missing'
+$env:DOCSET_AUTO_INDEX_CONTENT = 'true'
+$env:DOCSET_REFRESH_CATALOG_PERIODICALLY = 'true'
+$env:DOCSET_CATALOG_REFRESH_HOURS = '24'
+$env:DOCSET_FTS_BACKFILL_ON_START = 'true'
+.\venv\Scripts\python.exe source\app.py serve
+```
+
+These settings allow a **filtered** `search` request to install missing docsets,
+create FTS5 after installation, and refresh a stale catalog while the server runs.
+An unfiltered search does not install anything. The catalog refresh and FTS backfill
+are server-side maintenance; running a short-lived CLI command does not create a
+persistent scheduler. See [AUTOMATION.md](AUTOMATION.md).

@@ -1,8 +1,11 @@
 """MCP SDK v2 server: stdio for local agents, Streamable HTTP for Docker."""
 from __future__ import annotations
 import json
+import asyncio
 import os
 import subprocess
+import threading
+import logging
 import sys
 from pathlib import Path
 
@@ -15,6 +18,7 @@ def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 87
 
     store = DocsetStore()
     mcp = MCPServer("docset-agent-mcp", instructions=SERVER_INSTRUCTIONS)
+    start_background_maintenance(store)
 
     @mcp.prompt()
     def documentation_research(technology: str, task: str = "") -> str:
@@ -22,34 +26,37 @@ def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 87
         return documentation_research_prompt(technology, task)
 
     @mcp.tool()
-    def list_installed(limit: int = 100) -> list[dict]:
+    async def list_installed(limit: int = 100) -> list[dict]:
         """List docsets installed locally, including version and symbol count."""
-        return store.installed(limit)
+        return await asyncio.to_thread(store.installed, limit)
 
     @mcp.tool()
-    def search_docs(query: str, docset: str = "", limit: int = 20) -> list[dict]:
-        """Search offline indexed APIs/symbol names; optionally restrict to an installed docset."""
-        return store.search(query, docset, limit)
+    async def search_docs(query: str, docset: str = "", limit: int = 20) -> list[dict]:
+        """Search APIs. With an explicit docset filter, auto-install missing docs if enabled.
+
+        Without a docset filter, searches only installed docsets and never downloads.
+        """
+        return await asyncio.to_thread(store.search, query, docset, limit)
 
     @mcp.tool()
-    def read_doc(ref: str, max_chars: int = 12000) -> dict:
+    async def read_doc(ref: str, max_chars: int = 12000) -> dict:
         """Read one HTML documentation page or symbol fragment by its search result ref."""
-        return store.read_ref(ref, max_chars)
+        return await asyncio.to_thread(store.read_ref, ref, max_chars)
 
     @mcp.tool()
-    def search_catalog(query: str = "", limit: int = 50) -> dict:
+    async def search_catalog(query: str = "", limit: int = 50) -> dict:
         """List/search all downloadable docsets in local catalog (requires catalog sync once)."""
-        return store.catalog_search(query, limit)
+        return await asyncio.to_thread(store.catalog_search, query, limit)
 
     @mcp.tool()
-    def refresh_catalog() -> dict:
+    async def refresh_catalog() -> dict:
         """Download current list of all Dash/Zeal docsets from upstream API."""
-        return store.sync_catalog()
+        return await asyncio.to_thread(store.sync_catalog)
 
     @mcp.tool()
-    def install_docset(name: str, source: str = "", update: bool = False) -> dict:
+    async def install_docset(name: str, source: str = "", update: bool = False) -> dict:
         """Download and index a named docset. Can be a large network/disk operation."""
-        return store.download_one(name, source or None, update)
+        return await asyncio.to_thread(store.download_one, name, source or None, update)
 
     @mcp.tool()
     def bulk_download_start(workers: int = 2, delay_seconds: float = 2.0, update: bool = False) -> dict:
@@ -94,19 +101,20 @@ def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 87
                 "log": str(logfile)}
 
     @mcp.tool()
-    def index_content(docset: str, max_pages: int = 10000) -> dict:
-        """Build full-text FTS5 index of HTML pages for ONE docset (disk/CPU intensive)."""
-        return store.index_content(docset, max_pages)
+    async def index_content(docset: str, max_pages: int = 0) -> dict:
+        """Build full-text FTS5 for one docset (0 = configured page limit)."""
+        return await asyncio.to_thread(store.index_content, docset,
+                                       max_pages or store.fts_max_pages)
 
     @mcp.tool()
-    def search_content(query: str, docset: str, limit: int = 10) -> list[dict]:
-        """Search FULL HTML documentation text in a docset that has a content index."""
-        return store.search_content(query, docset, limit)
+    async def search_content(query: str, docset: str, limit: int = 10) -> list[dict]:
+        """Search HTML text; optionally install a missing docset and build FTS5 on demand."""
+        return await asyncio.to_thread(store.search_content, query, docset, limit)
 
     @mcp.tool()
-    def reindex_docset(docset_id: str) -> dict:
+    async def reindex_docset(docset_id: str) -> dict:
         """Repair a docset symbol index without downloading again; accepts name or source:name."""
-        return store.reindex_one(docset_id)
+        return await asyncio.to_thread(store.reindex_one, docset_id)
 
     if transport == "stdio":
         mcp.run(transport="stdio")
@@ -128,6 +136,39 @@ def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 87
                 stateless_http=True, json_response=True, transport_security=security)
     else:
         raise ValueError(f"Unsupported MCP transport: {transport}")
+
+
+
+def start_background_maintenance(store: DocsetStore) -> None:
+    """Low-priority daemon: nonblocking MCP startup and graceful offline fallback.
+
+    Independent daemon threads backfill missing FTS indexes and check the catalog
+    every five minutes. Lock files prevent simultaneous writers across containers.
+    """
+    if not store.refresh_catalog_periodically and not (store.auto_index_content and store.fts_backfill_on_start):
+        return
+
+    def backfill_worker():
+        try:
+            result = store.index_content_all(missing_only=True)
+            logging.getLogger(__name__).info("FTS backfill complete: %s", result)
+        except Exception:
+            logging.getLogger(__name__).exception("FTS backfill failed")
+
+    def refresh_worker():
+        while True:
+            try:
+                result = store.refresh_catalog_if_due()
+                if result.get("status") != "fresh":
+                    logging.getLogger(__name__).info("Catalog refresh: %s", result)
+            except Exception:
+                logging.getLogger(__name__).exception("Catalog refresh failed; using cache")
+            threading.Event().wait(300)
+
+    if store.auto_index_content and store.fts_backfill_on_start:
+        threading.Thread(target=backfill_worker, name="docset-fts-backfill", daemon=True).start()
+    if store.refresh_catalog_periodically:
+        threading.Thread(target=refresh_worker, name="docset-catalog-refresh", daemon=True).start()
 
 
 def is_running(pid: int) -> bool:

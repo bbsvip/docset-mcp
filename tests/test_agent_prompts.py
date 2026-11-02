@@ -20,4 +20,5 @@ def test_named_prompt_is_task_specific_and_does_not_download():
     assert "Check GIN index support" in result
     assert "list_installed" in result
     assert "read_doc" in result
-    assert "Do not install or bulk-download" in result
+    assert "do not bulk-download" in result
+    assert "DOCSET_AUTO_INSTALL=missing" in result

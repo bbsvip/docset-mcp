@@ -20,7 +20,9 @@ docker compose ps
 
 Default endpoint: `http://127.0.0.1:8765/mcp`.
 
-The server binds to the host's **loopback address only**. If port `8765` is taken, copy `.env.example` to `.env` and edit `DOCSET_PORT`. The path `/mcp` remains unchanged.
+The server binds to the host's **loopback address only**. By default, the Compose service
+also auto-installs explicitly requested docsets, auto-indexes their content, and
+periodically refreshes the catalog; see [AUTOMATION.md](AUTOMATION.md). If port `8765` is taken, copy `.env.example` to `.env` and edit `DOCSET_PORT`. The path `/mcp` remains unchanged.
 
 ### Configure Pi
 
@@ -91,7 +93,29 @@ docker compose exec mcp python /app/source/app.py index-content Python_3
 docker compose exec mcp python /app/source/app.py search-content 'deserialize JSON' --docset Python_3
 ```
 
-Symbol search works without the optional FTS5 index. Indexing *every* page in *every* docset will consume additional CPU and storage; it is opt-in per docset.
+Symbol search works without FTS5. **FTS5 indexing is automatic by default in Docker**:
+after each install, on the first `search-content` request if an index is missing, and via a
+one-time background backfill when the MCP server starts. Indexing *every* HTML page in
+*every* docset requires additional CPU and disk space. To disable it, set
+`DOCSET_AUTO_INDEX_CONTENT=false`. To prevent startup backfill while keeping automatic
+indexing of newly downloaded docsets, use `DOCSET_FTS_BACKFILL_ON_START=false`.
+
+```bash
+# Explicitly rebuild missing full-text indexes (no docset downloads)
+docker compose exec mcp python /app/source/app.py index-content --all --missing-only
+```
+
+**Automatic on-demand installation** is enabled in Compose. For example:
+
+```bash
+# Even if Python_3 was not previously installed, the filtered search can install it.
+docker compose exec mcp python /app/source/app.py search 'json.loads' --docset Python_3
+```
+
+MCP `search_docs` behaves the same way with a nonempty `docset` argument. Unfiltered
+searches never trigger a download. See [AUTOMATION.md](AUTOMATION.md) for all settings,
+including the 24-hour catalog refresh and offline fallback.
+
 
 ## 4. Docker without Compose
 
@@ -104,6 +128,11 @@ docker volume create docset-agent-mcp-data
 docker run -d --name docset-agent-mcp --restart unless-stopped \
   -p 127.0.0.1:8765:8765 \
   -v docset-agent-mcp-data:/data \
+  -e DOCSET_AUTO_INSTALL=missing \
+  -e DOCSET_AUTO_INDEX_CONTENT=true \
+  -e DOCSET_REFRESH_CATALOG_PERIODICALLY=true \
+  -e DOCSET_CATALOG_REFRESH_HOURS=24 \
+  -e DOCSET_FTS_BACKFILL_ON_START=true \
   docset-agent-mcp:local
 
 # Sync and install using short-lived containers attached to the same volume
@@ -173,9 +202,12 @@ For host bind mounts on Linux, the container runs under UID/GID `10001:10001`. E
 | `catalog sync` fails | Network/DNS, upstream availability, and the Zeal backend API. |
 | `complete_catalog: false` | A smaller legacy fallback catalog was used; bulk download is not complete coverage. |
 | Archive too large | `DOCSET_MAX_ARCHIVE_GB` / `DOCSET_MAX_EXPANDED_GB` and free disk space. |
-| MCP tools visible but no search results | Check `installed` for `indexed: 0` or `symbols: 0`; run `reindex Python_3` or `reindex --all --failed-only` without downloading again. |
+| MCP tools visible but no search results | With `docset` set, an absent docset is automatically installed (if enabled). For existing ones check `indexed: 0` or `symbols: 0`; run `reindex --all --failed-only` if needed. |
 | `no such column: m.ZTOKENTYPE` | Old builds used an incorrect Core Data join. Rebuild the image with the fixed indexer and run `reindex Python_3`. Your docset volume is preserved. |
-| Download fails for one docset | Inspect logs; mirrors, archive structure, or index schemas may have changed. |
+| Download fails for one docset | Inspect logs; mirrors, archive structure, or index schemas may have changed. The first filtered query can fail if auto-installation fails. |
+| `Docset not installed ... (auto-install disabled)` | Set `DOCSET_AUTO_INSTALL=missing` or explicitly download via CLI / `install_docset`. |
+| Disk/CPU usage rises after upgrade | Automatic FTS backfill is enabled; set `DOCSET_FTS_BACKFILL_ON_START=false` or `DOCSET_AUTO_INDEX_CONTENT=false`. |
+| Catalog cannot refresh while offline | Previously cached catalog and installed docsets remain usable; check logs when network access returns. |
 | Agent in a container cannot reach localhost | Use a shared Docker network and service hostname or a properly secured host endpoint. |
 
 ### Test coverage

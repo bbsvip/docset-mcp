@@ -31,6 +31,20 @@ _ALLOWED_SOURCE = {"com.kapeli", "com.kapeli.dash", "com.kapeli.contrib", "com.k
 _SAFE = re.compile(r"^[A-Za-z0-9_.()+-]+$")
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name, "true" if default else "false").strip().lower()
+    if value not in {"true", "false", "1", "0", "yes", "no", "on", "off"}:
+        raise ValueError(f"{name} must be true or false")
+    return value in {"true", "1", "yes", "on"}
+
+
+def env_positive_int(name: str, default: int, maximum: int) -> int:
+    value = int(os.environ.get(name, str(default)))
+    if not 1 <= value <= maximum:
+        raise ValueError(f"{name} must be between 1 and {maximum}")
+    return value
+
+
 def timestamp() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -72,23 +86,28 @@ def network_open(url: str, headers: dict | None = None, attempts: int = 4):
 
 
 @contextlib.contextmanager
-def process_file_lock(path: Path):
-    """Portable nonblocking OS lock; automatically released even after process crash."""
+def process_file_lock(path: Path, wait_seconds: float = 0):
+    """Portable process lock, optionally waiting for a competing writer."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+b") as handle:
         if path.stat().st_size == 0:
             handle.write(b"\0")
             handle.flush()
-        try:
-            if os.name == "nt":
-                import msvcrt
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise RuntimeError(f"Another process is accessing {path.name}") from exc
+        deadline = time.monotonic() + max(0.0, wait_seconds)
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"Another process is accessing {path.name}") from exc
+                time.sleep(min(0.2, max(0, deadline - time.monotonic())))
         try:
             yield
         finally:
@@ -114,6 +133,14 @@ class DocsetStore:
         self.dbfile = self.home / "index.sqlite3"
         self.catalog_file = self.home / "catalog.json"
         self.lock = threading.RLock()
+        self.auto_install = os.environ.get("DOCSET_AUTO_INSTALL", "off").strip().lower()
+        if self.auto_install not in ("off", "missing"):
+            raise ValueError("DOCSET_AUTO_INSTALL must be off or missing")
+        self.auto_index_content = env_bool("DOCSET_AUTO_INDEX_CONTENT")
+        self.refresh_catalog_periodically = env_bool("DOCSET_REFRESH_CATALOG_PERIODICALLY")
+        self.catalog_refresh_hours = env_positive_int("DOCSET_CATALOG_REFRESH_HOURS", 24, 24 * 365)
+        self.fts_max_pages = env_positive_int("DOCSET_FTS_MAX_PAGES", 100000, 100000)
+        self.fts_backfill_on_start = env_bool("DOCSET_FTS_BACKFILL_ON_START", True)
         self._init_db()
         self._recover_backups()
 
@@ -192,6 +219,11 @@ class DocsetStore:
         return sorted(result, key=lambda x: (x["name"].casefold(), x["source"]))
 
     def sync_catalog(self) -> dict:
+        """Serialize catalog writes across containers and make the JSON swap atomic."""
+        with process_file_lock(self.home / "locks" / "catalog.lock", wait_seconds=90):
+            return self._sync_catalog_unlocked()
+
+    def _sync_catalog_unlocked(self) -> dict:
         errors = []
         for url in (CATALOG_FULL, CATALOG_LEGACY):
             try:
@@ -211,6 +243,33 @@ class DocsetStore:
             except (OSError, URLError, HTTPError, ValueError, json.JSONDecodeError) as e:
                 errors.append(f"{url}: {e}")
         raise RuntimeError("Cannot fetch catalog: " + " | ".join(errors))
+
+    def catalog_refresh_due(self) -> bool:
+        if not self.catalog_file.is_file():
+            return True
+        try:
+            cached = json.loads(self.catalog_file.read_text(encoding="utf-8"))
+            fetched = datetime.fromisoformat(cached["fetched_at"].replace("Z", "+00:00"))
+            if fetched.tzinfo is None:
+                return True
+            age = (datetime.now(timezone.utc) - fetched).total_seconds()
+            return age >= self.catalog_refresh_hours * 3600
+        except (OSError, ValueError, KeyError, TypeError):
+            return True
+
+    def refresh_catalog_if_due(self) -> dict:
+        """Refresh only when stale. Preserve an older catalog on network failures."""
+        if not self.catalog_refresh_due():
+            return {"status": "fresh"}
+        try:
+            with process_file_lock(self.home / "locks" / "catalog.lock", wait_seconds=90):
+                if not self.catalog_refresh_due():
+                    return {"status": "fresh"}
+                return {"status": "updated", **self._sync_catalog_unlocked()}
+        except RuntimeError as exc:
+            # Offline usage must keep working with the last known catalog.
+            return {"status": "failed", "error": str(exc),
+                    "cached": self.catalog_file.is_file()}
 
     def catalog(self, refresh: bool = False) -> dict:
         if refresh or not self.catalog_file.exists():
@@ -250,6 +309,31 @@ class DocsetStore:
         with self.db() as db:
             rows = db.execute("SELECT * FROM installed ORDER BY name LIMIT ?", (max(1, min(limit, 2000)),)).fetchall()
         return [dict(row) for row in rows if self.path_for(row["id"]).is_dir()]
+
+    def ensure_docset(self, docset: str) -> dict:
+        """On-demand install only for an explicit, unambiguous docset identifier.
+
+        Never infer a docset from free-text search or download the whole catalog.
+        """
+        with self.db() as db:
+            matches = db.execute("SELECT id, indexed FROM installed WHERE id=? OR name=? COLLATE NOCASE",
+                                 (docset, docset)).fetchall()
+        if len(matches) > 1:
+            raise ValueError("Ambiguous docset; use source:name: " + docset)
+        if matches and self.path_for(matches[0]["id"]).is_dir():
+            if not matches[0]["indexed"]:
+                self.reindex_one(matches[0]["id"])
+            return {"status": "already_installed", "id": matches[0]["id"]}
+        if self.auto_install != "missing":
+            raise ValueError("Docset not installed: " + docset + " (auto-install disabled)")
+        # download_one checks catalog identity, acquires a per-docset process lock,
+        # and safely skips if another client completed the installation first.
+        result = self.download_one(docset)
+        if result.get("warning"):
+            raise RuntimeError(result["warning"])
+        if result.get("status") == "skipped":
+            return self.ensure_docset(docset)
+        return result
 
     def _choose_archive(self, stage: Path):
         folders = [p for p in stage.rglob("*.docset") if p.is_dir()]
@@ -474,13 +558,27 @@ class DocsetStore:
 
     def download_one(self, name: str, source: str | None = None, update: bool = False) -> dict:
         entry = self._resolve_catalog_entry(name, source)
-        with process_file_lock(self.home / "locks" / (entry["id"].replace(":", "__") + ".lock")):
+        with process_file_lock(self.home / "locks" / (entry["id"].replace(":", "__") + ".lock"), wait_seconds=3600):
             return self._download_one_locked(entry, update)
 
     def _download_one_locked(self, entry: dict, update: bool = False) -> dict:
         key = entry["id"]
         target = self.path_for(key)
         if target.is_dir() and not update:
+            # Recover a directory moved into place just before a process crash,
+            # when its installed-row transaction never completed.
+            with self.db() as db:
+                exists = db.execute("SELECT indexed FROM installed WHERE id=?", (key,)).fetchone()
+                if exists is None:
+                    db.execute("INSERT INTO installed (id,source,name,version,installed_at,indexed) "
+                               "VALUES (?,?,?,?,?,0)",
+                               (key, entry["source"], entry["name"], entry["latest"], timestamp()))
+            if exists is None:
+                result = self.reindex_one(key)
+                if self.auto_index_content:
+                    result["content_index"] = self.index_content(key, self.fts_max_pages,
+                                                                 only_if_missing=True)
+                return {"id": key, "status": "recovered", **result}
             return {"id": key, "status": "skipped", "reason": "already installed"}
         archive_dir = self.home / "downloads"
         archive_dir.mkdir(parents=True, exist_ok=True)
@@ -523,7 +621,15 @@ class DocsetStore:
                         backup.replace(target)
                     raise
             part.unlink(missing_ok=True)
-            return {"id": key, "status": "installed", "bytes": bytes_, **index}
+            result = {"id": key, "status": "installed", "bytes": bytes_, **index}
+            if self.auto_index_content:
+                try:
+                    result["content_index"] = self.index_content(key, self.fts_max_pages,
+                                                                 only_if_missing=True)
+                except (sqlite3.Error, ValueError, OSError, RuntimeError) as exc:
+                    # Preserve the usable symbol index; FTS can be rebuilt later.
+                    result["content_index_warning"] = str(exc)
+            return result
         finally:
             shutil.rmtree(stage, ignore_errors=True)
 
@@ -551,7 +657,7 @@ class DocsetStore:
             raise ValueError("workers must be 1..3 to avoid overloading upstream servers")
         if delay < 0:
             raise ValueError("delay must be nonnegative")
-        counts = {"installed": 0, "skipped": 0, "failed": 0}
+        counts = {"installed": 0, "recovered": 0, "skipped": 0, "failed": 0}
         failures = []
         jobs_lock = threading.Lock()
         next_slot = [time.monotonic()]
@@ -583,7 +689,8 @@ class DocsetStore:
         folder.mkdir(parents=True, exist_ok=True)
         return folder / (identifier.replace(":", "__") + ".sqlite3")
 
-    def index_content(self, docset: str, max_pages: int = 10000) -> dict:
+    def index_content(self, docset: str, max_pages: int = 10000,
+                      only_if_missing: bool = False) -> dict:
         """Build OPTIONAL full-text search for one installed docset.
 
         Separate SQLite DB avoids multiplying the size/cost of symbol-only lookups.
@@ -598,45 +705,68 @@ class DocsetStore:
             raise ValueError("No Documents directory")
         max_pages = max(1, min(int(max_pages), 100000))
         dbfile = self._fts_path(key)
-        stage = dbfile.with_name(dbfile.name + ".tmp")
-        stage.unlink(missing_ok=True)
-        pages = 0
-        try:
-            with sqlite3.connect(stage) as db:
-                db.execute("CREATE VIRTUAL TABLE docs USING fts5(path UNINDEXED, title, body)")
-                batch = []
-                for file in root.rglob("*"):
-                    if pages >= max_pages:
-                        break
-                    if file.suffix.lower() not in (".html", ".htm") or not file.is_file() or file.is_symlink():
-                        continue
-                    if file.stat().st_size > 3 * 1024 * 1024:
-                        continue
-                    try:
-                        soup = BeautifulSoup(file.read_text(encoding="utf-8", errors="replace"), "html.parser")
-                        title = soup.title.get_text(" ", strip=True) if soup.title else file.stem
-                        for tag in soup(["script", "style", "noscript", "svg", "nav", "footer"]):
-                            tag.decompose()
-                        body = (soup.main or soup.article or soup.body or soup).get_text(" ", strip=True)
-                        if not body:
-                            continue
-                        batch.append((file.relative_to(root).as_posix(), title[:350], body[:250000]))
-                        pages += 1
-                        if len(batch) >= 100:
-                            db.executemany("INSERT INTO docs(path,title,body) VALUES(?,?,?)", batch)
-                            batch.clear()
-                    except (OSError, ValueError, UnicodeError):
-                        continue
-                if batch:
-                    db.executemany("INSERT INTO docs(path,title,body) VALUES(?,?,?)", batch)
-                db.commit()
-            os.replace(stage, dbfile)
-        finally:
+        with process_file_lock(self.home / "locks" / (key.replace(":", "__") + ".fts.lock"), wait_seconds=3600):
+            if only_if_missing and dbfile.is_file():
+                return {"id": key, "status": "skipped", "fts_db": str(dbfile)}
+            stage = dbfile.with_name(dbfile.name + ".tmp")
             stage.unlink(missing_ok=True)
-        return {"id": key, "pages": pages, "fts_db": str(dbfile)}
+            pages = 0
+            try:
+                with sqlite3.connect(stage) as db:
+                    db.execute("CREATE VIRTUAL TABLE docs USING fts5(path UNINDEXED, title, body)")
+                    batch = []
+                    for file in root.rglob("*"):
+                        if pages >= max_pages:
+                            break
+                        if file.suffix.lower() not in (".html", ".htm") or not file.is_file() or file.is_symlink():
+                            continue
+                        if file.stat().st_size > 3 * 1024 * 1024:
+                            continue
+                        try:
+                            soup = BeautifulSoup(file.read_text(encoding="utf-8", errors="replace"), "html.parser")
+                            title = soup.title.get_text(" ", strip=True) if soup.title else file.stem
+                            for tag in soup(["script", "style", "noscript", "svg", "nav", "footer"]):
+                                tag.decompose()
+                            body = (soup.main or soup.article or soup.body or soup).get_text(" ", strip=True)
+                            if not body:
+                                continue
+                            batch.append((file.relative_to(root).as_posix(), title[:350], body[:250000]))
+                            pages += 1
+                            if len(batch) >= 100:
+                                db.executemany("INSERT INTO docs(path,title,body) VALUES(?,?,?)", batch)
+                                batch.clear()
+                        except (OSError, ValueError, UnicodeError):
+                            continue
+                    if batch:
+                        db.executemany("INSERT INTO docs(path,title,body) VALUES(?,?,?)", batch)
+                    db.commit()
+                os.replace(stage, dbfile)
+            finally:
+                stage.unlink(missing_ok=True)
+            return {"id": key, "pages": pages, "fts_db": str(dbfile), "status": "indexed",
+                    "max_pages_reached": pages >= max_pages}
+
+    def index_content_all(self, missing_only: bool = True, log=None) -> dict:
+        """Backfill existing installed docsets without downloading them again."""
+        keys = [row["id"] for row in self.installed(2000)]
+        counts = {"indexed": 0, "skipped": 0, "failed": 0}
+        errors = []
+        for key in keys:
+            try:
+                result = self.index_content(key, self.fts_max_pages,
+                                            only_if_missing=missing_only)
+                counts[result["status"]] += 1
+            except (sqlite3.Error, OSError, ValueError, RuntimeError) as exc:
+                result = {"id": key, "status": "failed", "error": str(exc)}
+                counts["failed"] += 1
+                errors.append(result)
+            if log:
+                log(result)
+        return {"selected": len(keys), **counts, "failures": errors[:100]}
 
     def search_content(self, query: str, docset: str, limit: int = 10) -> list[dict]:
         """Search text (not only symbols) in an explicitly indexed docset."""
+        self.ensure_docset(docset)
         with self.db() as db:
             keys = db.execute("SELECT id FROM installed WHERE id=? OR name=? COLLATE NOCASE", (docset, docset)).fetchall()
         if len(keys) != 1:
@@ -644,7 +774,10 @@ class DocsetStore:
         key = keys[0]["id"]
         dbfile = self._fts_path(key)
         if not dbfile.is_file():
-            raise ValueError("Full text not indexed. Run index-content for " + key)
+            if self.auto_index_content:
+                self.index_content(key, self.fts_max_pages, only_if_missing=True)
+            else:
+                raise ValueError("Full text not indexed. Run index-content for " + key)
         terms = re.findall(r"[\w]+", query, flags=re.UNICODE)[:12]
         if not terms:
             raise ValueError("No search terms")
@@ -666,6 +799,7 @@ class DocsetStore:
         where = "WHERE name_lc LIKE ? ESCAPE '\\'"
         params = [f"%{escaped}%"]
         if docset:
+            self.ensure_docset(docset)
             with self.db() as db:
                 choices = db.execute("SELECT id FROM installed WHERE id=? OR name=? COLLATE NOCASE", (docset, docset)).fetchall()
             if not choices:
@@ -697,6 +831,7 @@ class DocsetStore:
 
     def read(self, docset: str, path: str, max_chars: int = 12000) -> dict:
         max_chars = max(300, min(max_chars, 50000))
+        self.ensure_docset(docset)
         with self.db() as db:
             rows = db.execute("SELECT id FROM installed WHERE id=? OR name=? COLLATE NOCASE", (docset, docset)).fetchall()
         if len(rows) != 1:

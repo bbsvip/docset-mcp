@@ -236,7 +236,8 @@ def test_repair_existing_docset_without_redownload(store, tmp_path, monkeypatch)
     monkeypatch.setattr(store, "_read_rows", lambda _: (_ for _ in ()).throw(sqlite3.OperationalError("bad schema")))
     result = store.download_one("Python_3")
     assert "warning" in result and result["symbols"] == 0
-    assert store.search("json.loads", "Python_3") == []
+    with pytest.raises(sqlite3.OperationalError, match="bad schema"):
+        store.search("json.loads", "Python_3")
     monkeypatch.setattr(store, "_read_rows", original)
     # --failed-only reuses existing archive bytes on disk and rebuilds only the metadata DB.
     repaired = store.reindex_all(failed_only=True)

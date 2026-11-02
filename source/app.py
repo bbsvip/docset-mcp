@@ -35,8 +35,10 @@ def main():
     read.add_argument("ref", help="source:name::relative/path.html#anchor")
     read.add_argument("--max-chars", type=int, default=12000)
     fts = commands.add_parser("index-content", help="Build optional full-text index for one docset")
-    fts.add_argument("docset")
-    fts.add_argument("--max-pages", type=int, default=10000)
+    fts.add_argument("docset", nargs="?")
+    fts.add_argument("--all", action="store_true", help="Index all installed docsets")
+    fts.add_argument("--missing-only", action="store_true", help="With --all, skip existing FTS indexes")
+    fts.add_argument("--max-pages", type=int, default=None, help="Per-docset page limit")
     fts_search = commands.add_parser("search-content", help="Search an indexed docset body")
     fts_search.add_argument("query")
     fts_search.add_argument("--docset", required=True)
@@ -86,13 +88,23 @@ def main():
                 parser.error("--failed-only requires --all")
             output = store.reindex_one(args.id)
     elif args.command == "index-content":
-        output = store.index_content(args.docset, args.max_pages)
+        if args.all:
+            if args.docset:
+                parser.error("Do not provide a docset with --all")
+            output = store.index_content_all(missing_only=args.missing_only,
+                        log=lambda e: print(json.dumps(e, ensure_ascii=False), flush=True))
+        else:
+            if not args.docset:
+                parser.error("Provide a docset name or --all")
+            if args.missing_only:
+                parser.error("--missing-only requires --all")
+            output = store.index_content(args.docset, args.max_pages or store.fts_max_pages)
     elif args.command == "search-content":
         output = store.search_content(args.query, args.docset, args.limit)
     else:
         parser.error("Unknown command")
     print(json.dumps(output, ensure_ascii=False, indent=2))
-    if ((args.command == "download" and args.all) or (args.command == "reindex" and args.all)) and output.get("failed"):
+    if ((args.command == "download" and args.all) or (args.command == "reindex" and args.all) or (args.command == "index-content" and args.all)) and output.get("failed"):
         sys.exit(2)
 
 
