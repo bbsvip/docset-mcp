@@ -1,0 +1,38 @@
+name: docset-agent-mcp
+
+x-docset-common: &docset-common
+  build: .
+  image: docset-agent-mcp:local
+  volumes:
+    - docsets:/data
+  environment:
+    DOCSET_HOME: /data
+    DOCSET_MAX_ARCHIVE_GB: ${DOCSET_MAX_ARCHIVE_GB:-4}
+    DOCSET_MAX_EXPANDED_GB: ${DOCSET_MAX_EXPANDED_GB:-12}
+    DOCSET_MAX_FILES: ${DOCSET_MAX_FILES:-250000}
+    DOCSET_MCP_ALLOWED_HOSTS: ${DOCSET_MCP_ALLOWED_HOSTS:-127.0.0.1,127.0.0.1:*,localhost,localhost:*,[::1],[::1]:*,mcp,mcp:*}
+
+services:
+  mcp:
+    <<: *docset-common
+    ports:
+      # Intentionally localhost-only: this MCP exposes write/download tools and has no authentication.
+      - "127.0.0.1:${DOCSET_PORT:-8765}:8765"
+    command: ["serve-http", "--host", "0.0.0.0", "--port", "8765"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8765),3); s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  downloader:
+    <<: *docset-common
+    profiles: ["bulk"]
+    command: ["download", "--all", "--workers", "2", "--delay", "2"]
+    restart: "no"
+
+volumes:
+  docsets:
+    name: docset-agent-mcp-data
