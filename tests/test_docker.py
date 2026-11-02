@@ -89,3 +89,22 @@ def test_docker_files_and_mounts():
     assert 'name: docset-agent-mcp-data' in compose
     assert 'profiles: ["bulk"]' in compose
     assert 'venv/' in ignore and '.venv/' in ignore and 'data/' in ignore
+
+
+def test_reindex_cli_all_and_single(monkeypatch, capsys):
+    class FakeStore:
+        def reindex_one(self, name):
+            return {"id": name, "symbols": 100}
+        def reindex_all(self, failed_only=False, log=None):
+            assert failed_only is True
+            if log:
+                log({"status": "indexed", "id": "Python_3", "symbols": 100})
+            return {"selected": 1, "indexed": 1, "failed": 0}
+
+    monkeypatch.setattr(app, "DocsetStore", FakeStore)
+    monkeypatch.setattr(sys, "argv", ["app.py", "reindex", "Python_3"])
+    app.main()
+    assert '"symbols": 100' in capsys.readouterr().out
+    monkeypatch.setattr(sys, "argv", ["app.py", "reindex", "--all", "--failed-only"])
+    app.main()
+    assert '"indexed": 1' in capsys.readouterr().out

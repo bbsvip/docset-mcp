@@ -314,27 +314,90 @@ class DocsetStore:
 
     @staticmethod
     def _read_rows(docset_path: Path):
+        """Read Dash searchIndex or Xcode/Core Data indices without mutating the docset.
+
+        The Core Data schema stores the type FK on ZTOKEN (not on
+        ZTOKENMETAINFORMATION). Other generations omit some optional columns,
+        so detect them rather than assuming one fixed layout.
+        """
         idx = docset_path / "Contents" / "Resources" / "docSet.dsidx"
         uri = idx.as_uri() + "?mode=ro&immutable=1"
         with sqlite3.connect(uri, uri=True, timeout=10) as db:
-            tables = {x[0].lower() for x in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            tables = {str(row[0]).lower() for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")}
+
+            def columns(table: str) -> set[str]:
+                # The table names below are hard-coded, never user-provided.
+                return {str(row[1]).lower() for row in db.execute(f"PRAGMA table_info({table})")}
+
+            def combine(path, fragment):
+                if path is None:
+                    return path
+                path = str(path)
+                if fragment and "#" not in path:
+                    path += "#" + str(fragment).lstrip("#")
+                return path
+
             if "searchindex" in tables:
-                # Legacy schema: name, type, path. Identifier is not interpolated.
-                for row in db.execute("SELECT name, type, path FROM searchIndex"):
-                    yield (row[0], row[1], row[2])
-            elif {"ztoken", "ztokenmetainformation", "zfilepath"}.issubset(tables):
-                # Common CoreData / Dash schema. Different docsets may use other structures.
-                sql = """SELECT t.ZTOKENNAME, tt.ZTYPENAME, f.ZPATH
-                         FROM ZTOKEN t
-                         JOIN ZTOKENMETAINFORMATION m ON t.ZMETAINFORMATION=m.Z_PK
-                         JOIN ZFILEPATH f ON m.ZFILE=f.Z_PK
-                         LEFT JOIN ZTOKENTYPE tt ON m.ZTOKENTYPE=tt.Z_PK"""
-                for row in db.execute(sql):
-                    yield (row[0], row[1], row[2])
-            else:
+                fields = columns("searchIndex")
+                if not {"name", "path"}.issubset(fields):
+                    raise ValueError("Invalid searchIndex: missing name or path column")
+                type_col = "type" if "type" in fields else "NULL"
+                frag_col = "fragment" if "fragment" in fields else "NULL"
+                for name, kind, path, fragment in db.execute(
+                    f"SELECT name, {type_col}, path, {frag_col} FROM searchIndex"):
+                    yield name, kind, combine(path, fragment)
+                return
+
+            if not {"ztoken", "ztokenmetainformation", "zfilepath"}.issubset(tables):
                 raise ValueError(f"Unsupported docSet.dsidx schema: {sorted(tables)[:12]}")
 
+            token = columns("ZTOKEN")
+            meta = columns("ZTOKENMETAINFORMATION")
+            files = columns("ZFILEPATH")
+            if "ztokenname" not in token or "zpath" not in files:
+                raise ValueError("Core Data index lacks ZTOKENNAME or ZPATH")
+            if "zmetainformation" in token:
+                meta_join = "t.ZMETAINFORMATION = m.Z_PK"
+            elif "ztoken" in meta:
+                meta_join = "m.ZTOKEN = t.Z_PK"
+            else:
+                raise ValueError("Unsupported Core Data token-to-metadata relationship")
+            if "zfile" in meta:
+                file_join = "m.ZFILE = f.Z_PK"
+            elif "zfile" in token:
+                file_join = "t.ZFILE = f.Z_PK"
+            else:
+                raise ValueError("Unsupported Core Data metadata-to-file relationship")
+
+            type_fk = ("t.ZTOKENTYPE" if "ztokentype" in token else
+                       "m.ZTOKENTYPE" if "ztokentype" in meta else None)
+            if type_fk and "ztokentype" in tables and {"z_pk", "ztypename"}.issubset(columns("ZTOKENTYPE")):
+                type_join = f"LEFT JOIN ZTOKENTYPE tt ON {type_fk} = tt.Z_PK"
+                type_expr = "tt.ZTYPENAME"
+            else:
+                type_join = ""
+                type_expr = "NULL"
+            anchor_expr = "m.ZANCHOR" if "zanchor" in meta else "NULL"
+            sql = f"""SELECT t.ZTOKENNAME, {type_expr}, f.ZPATH, {anchor_expr}
+                      FROM ZTOKEN t
+                      JOIN ZTOKENMETAINFORMATION m ON {meta_join}
+                      JOIN ZFILEPATH f ON {file_join}
+                      {type_join}"""
+            for name, kind, path, fragment in db.execute(sql):
+                yield name, kind, combine(path, fragment)
+
+    def _installed_id(self, docset: str) -> str:
+        with self.db() as db:
+            keys = db.execute(
+                "SELECT id FROM installed WHERE id=? OR name=? COLLATE NOCASE",
+                (docset, docset)).fetchall()
+        if len(keys) != 1:
+            raise ValueError("Docset not installed or ambiguous: " + docset)
+        return keys[0]["id"]
+
     def reindex_one(self, docset_id: str) -> dict:
+        docset_id = self._installed_id(docset_id)
         location = self.path_for(docset_id)
         if not location.is_dir():
             raise ValueError("Docset is not installed")
@@ -356,6 +419,26 @@ class DocsetStore:
                 count += len(batch)
             db.execute("UPDATE installed SET indexed=1, symbols=? WHERE id=?", (count, docset_id))
         return {"id": docset_id, "symbols": count}
+
+    def reindex_all(self, failed_only: bool = False, log=None) -> dict:
+        """Repair installed docsets, including downloads where index creation failed."""
+        with self.db() as db:
+            query = "SELECT id FROM installed" + (" WHERE indexed=0" if failed_only else "")
+            keys = [row["id"] for row in db.execute(query + " ORDER BY name")]
+        success = 0
+        failures = []
+        for key in keys:
+            try:
+                result = self.reindex_one(key)
+                success += 1
+                event = {"status": "indexed", **result}
+            except (sqlite3.Error, ValueError, OSError) as exc:
+                event = {"status": "failed", "id": key, "error": str(exc)}
+                failures.append(event)
+            if log:
+                log(event)
+        return {"selected": len(keys), "indexed": success, "failed": len(failures),
+                "failures": failures[:100]}
 
     def _download_stream(self, url: str, part: Path):
         size = part.stat().st_size if part.exists() else 0

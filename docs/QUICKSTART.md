@@ -40,7 +40,9 @@ python source/app.py search 'json.loads' --docset Python_3
 python source/app.py read 'com.kapeli.dash:Python_3::library/json.html#json.loads'
 python source/app.py index-content Python_3
 python source/app.py search-content 'deserialize JSON' --docset Python_3
-python source/app.py reindex com.kapeli.dash:Python_3
+python source/app.py reindex Python_3
+python source/app.py reindex --all --failed-only
+python source/app.py reindex --all
 python source/app.py serve
 python source/app.py serve-http --host 127.0.0.1 --port 8765
 ```
@@ -57,7 +59,7 @@ The `read` reference above illustrates the format used by search results; use **
 - `--update`: re-download installed docsets rather than skipping them.
 - `--source SOURCE_ID`: restrict bulk downloads to one source, for example `com.kapeli.contrib`.
 
-A failed bulk run may exit with code 2. Re-run without `--update` to skip successful installations and retry unsuccessful items. The local index does not require any server to stay running.
+A failed bulk run may exit with code 2. Re-run without `--update` to skip successful installations and retry unsuccessful items. The local index does not require any server to stay running. `reindex Python_3` rebuilds an already installed symbol index without downloading anything. `reindex --all --failed-only` retries all installed docsets marked unindexed, while `reindex --all` forces a full symbol-index rebuild.
 
 ## Store data elsewhere
 

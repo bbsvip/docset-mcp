@@ -74,6 +74,13 @@ Already installed docsets are skipped. Interrupted `.part` downloads are reused 
 # List installed docsets
 docker compose exec mcp python /app/source/app.py installed
 
+# Repair previously installed docsets whose SQLite index is missing
+# (no re-download; the persistent volume is reused)
+docker compose exec mcp python /app/source/app.py reindex --all --failed-only
+
+# Or reindex one docset by name
+docker compose exec mcp python /app/source/app.py reindex Python_3
+
 # Find an API symbol
 docker compose exec mcp python /app/source/app.py search 'json.loads' --docset Python_3
 
@@ -166,7 +173,8 @@ For host bind mounts on Linux, the container runs under UID/GID `10001:10001`. E
 | `catalog sync` fails | Network/DNS, upstream availability, and the Zeal backend API. |
 | `complete_catalog: false` | A smaller legacy fallback catalog was used; bulk download is not complete coverage. |
 | Archive too large | `DOCSET_MAX_ARCHIVE_GB` / `DOCSET_MAX_EXPANDED_GB` and free disk space. |
-| MCP tools visible but no search results | Download a docset first; verify its `symbols` and `indexed` fields. |
+| MCP tools visible but no search results | Check `installed` for `indexed: 0` or `symbols: 0`; run `reindex Python_3` or `reindex --all --failed-only` without downloading again. |
+| `no such column: m.ZTOKENTYPE` | Old builds used an incorrect Core Data join. Rebuild the image with the fixed indexer and run `reindex Python_3`. Your docset volume is preserved. |
 | Download fails for one docset | Inspect logs; mirrors, archive structure, or index schemas may have changed. |
 | Agent in a container cannot reach localhost | Use a shared Docker network and service hostname or a properly secured host endpoint. |
 

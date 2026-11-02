@@ -42,7 +42,9 @@ def main():
     fts_search.add_argument("--docset", required=True)
     fts_search.add_argument("--limit", type=int, default=10)
     reindex = commands.add_parser("reindex", help="Rebuild symbol index")
-    reindex.add_argument("id")
+    reindex.add_argument("id", nargs="?", help="Installed docset name or full ID")
+    reindex.add_argument("--all", action="store_true", help="Reindex every installed docset")
+    reindex.add_argument("--failed-only", action="store_true", help="With --all, only retry docsets with failed/missing indices")
     args = parser.parse_args()
     if args.command in ("serve", "serve-http"):
         from mcp_server import run_server
@@ -72,7 +74,17 @@ def main():
     elif args.command == "read":
         output = store.read_ref(args.ref, args.max_chars)
     elif args.command == "reindex":
-        output = store.reindex_one(args.id)
+        if args.all:
+            if args.id:
+                parser.error("Do not supply an ID with --all")
+            output = store.reindex_all(failed_only=args.failed_only,
+                                       log=lambda e: print(json.dumps(e, ensure_ascii=False), flush=True))
+        else:
+            if not args.id:
+                parser.error("Provide a docset name or --all")
+            if args.failed_only:
+                parser.error("--failed-only requires --all")
+            output = store.reindex_one(args.id)
     elif args.command == "index-content":
         output = store.index_content(args.docset, args.max_pages)
     elif args.command == "search-content":
@@ -80,7 +92,7 @@ def main():
     else:
         parser.error("Unknown command")
     print(json.dumps(output, ensure_ascii=False, indent=2))
-    if args.command == "download" and args.all and output.get("failed"):
+    if ((args.command == "download" and args.all) or (args.command == "reindex" and args.all)) and output.get("failed"):
         sys.exit(2)
 
 

@@ -105,7 +105,7 @@ def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 87
 
     @mcp.tool()
     def reindex_docset(docset_id: str) -> dict:
-        """Rebuild symbol index for an installed docset by its source:name identifier."""
+        """Repair a docset symbol index without downloading again; accepts name or source:name."""
         return store.reindex_one(docset_id)
 
     if transport == "stdio":

@@ -34,6 +34,9 @@ docker compose run --rm mcp catalog sync
 docker compose run --rm mcp catalog list --query Python
 docker compose run --rm mcp download Python_3
 
+# If a downloaded docset reports "index unavailable", repair its SQLite index:
+docker compose run --rm mcp reindex Python_3
+
 # Search the installed docset
 docker compose exec mcp python /app/source/app.py search 'json.loads' --docset Python_3
 ```
@@ -64,9 +67,9 @@ docker compose --profile bulk up -d downloader
 docker compose logs -f downloader
 ```
 
-Re-run the downloader after interruptions; installed docsets are skipped unless you specify `--update`. The downloaded files, catalog, indexes, and logs are stored in the Docker volume **`docset-agent-mcp-data`**, not in the image.
+Re-run the downloader after interruptions; installed docsets are skipped unless you specify `--update`. To rebuild symbol indexes for already-downloaded docsets without downloading again, run `docker compose run --rm mcp reindex --all --failed-only`. The downloaded files, catalog, indexes, and logs are stored in the Docker volume **`docset-agent-mcp-data`**, not in the image.
 
-**More detailed setup:** [Docker guide](docs/DOCKER.md) · [Quick-start and CLI guide](docs/QUICKSTART.md) · [Agent prompt and usage guidance](docs/AGENT_PROMPT.md)
+**Changes and upgrades:** [Changelog](CHANGELOG.md). **More detailed setup:** [Docker guide](docs/DOCKER.md) · [Quick-start and CLI guide](docs/QUICKSTART.md) · [Agent prompt and usage guidance](docs/AGENT_PROMPT.md)
 
 ## MCP tools
 
@@ -80,7 +83,7 @@ Re-run the downloader after interruptions; installed docsets are skipped unless 
 | `install_docset` | Download and index one docset (network and disk write). |
 | `bulk_download_start` | Launch a local bulk downloader subprocess. |
 | `bulk_download_status` | Inspect bulk-download progress and recent log lines. |
-| `reindex_docset` | Rebuild symbol indexes from an installed docset. |
+| `reindex_docset` | Rebuild symbol indexes from an installed docset (accepts its name or full ID). |
 | `index_content` | Build an optional full-text SQLite FTS5 index for one docset. |
 | `search_content` | Search the full-text index, if built. |
 
@@ -135,7 +138,7 @@ python -m pytest -q tests
 
 Offline test fixtures cover download and extraction, traversal/symlink rejection, SQLite search, HTML section extraction, full-text indexing, CLI transport dispatch, and Docker configuration. **These tests are not a substitute for a real Docker build, a live mirror download, or an MCP handshake**, which should be performed before claiming production readiness.
 
-Current limitations: no semantic/vector search, no automated dependency-version discovery, no authentication, no docset browser GUI, and no promise that a downloaded docset is the latest version of a framework.
+Current limitations: no semantic/vector search, no automated dependency-version discovery, no authentication, no docset browser GUI, and no promise that a downloaded docset is the latest version of a framework. The indexer supports both legacy `searchIndex` and standard Core Data (`ZTOKEN`) docsets; uncommon custom database schemas can still require additional adapters.
 
 ## Licensing and upstream usage
 
