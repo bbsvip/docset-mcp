@@ -1,0 +1,334 @@
+{
+  "title": "Developer, AI/ML and DevOps documentation profile",
+  "basis": "Community-maintained selected set; catalog match is validated at install time",
+  "tiers": {
+    "1": "core",
+    "2": "extended",
+    "3": "specialized"
+  },
+  "groups": [
+    {
+      "group": "Python & everyday tooling",
+      "tier": 1,
+      "docsets": [
+        "Python 3",
+        "Python Enhancement Proposals",
+        "pytest",
+        "uv",
+        "Requests",
+        "Beautiful Soup",
+        "Pillow",
+        "PyInstaller",
+        "Jinja",
+        "SQLAlchemy",
+        "Alembic",
+        "click",
+        "json-schema",
+        "Sphinx"
+      ]
+    },
+    {
+      "group": "Backend, data & hybrid search",
+      "tier": 1,
+      "docsets": [
+        "PostgreSQL",
+        "SQLite",
+        "Redis",
+        "ClickHouse",
+        "Neo4j",
+        "HTTP",
+        "Nginx"
+      ]
+    },
+    {
+      "group": "Web, frontend & extensions",
+      "tier": 1,
+      "docsets": [
+        "HTML",
+        "CSS",
+        "JavaScript",
+        "TypeScript",
+        "Alpine.js",
+        "Bootstrap 5",
+        "Visual Studio Code",
+        "ESLint",
+        "JSDoc",
+        "SVG"
+      ]
+    },
+    {
+      "group": "AI, CV, LLM & training",
+      "tier": 1,
+      "docsets": [
+        "PyTorch",
+        "Transformers",
+        "NumPy",
+        "Pandas",
+        "SciPy",
+        "scikit-learn",
+        "OpenCV",
+        "CUDA",
+        "MLflow"
+      ]
+    },
+    {
+      "group": "Desktop, server & native",
+      "tier": 1,
+      "docsets": [
+        "Qt 5",
+        "Qt 6",
+        "Qt for Python (PySide 2/PySide 6)",
+        "Docker",
+        "Bash",
+        "Linux Man Pages",
+        "Git",
+        "GitHub Actions",
+        "Powershell",
+        "C++",
+        "CMake",
+        "Rust",
+        "FFmpeg",
+        "FastMCP"
+      ]
+    },
+    {
+      "group": "Backend and storage extensions",
+      "tier": 2,
+      "docsets": [
+        "aiohttp",
+        "Celery",
+        "Tornado",
+        "DuckDB",
+        "MongoDB",
+        "ElasticSearch",
+        "LMDB",
+        "psycopg2",
+        "sqlite-utils",
+        "NetworkX",
+        "PostGIS",
+        "structlog"
+      ]
+    },
+    {
+      "group": "AI, quantitative research & inference extensions",
+      "tier": 2,
+      "docsets": [
+        "Optuna",
+        "LightGBM",
+        "XGBoost",
+        "statsmodels",
+        "MatPlotLib",
+        "polars",
+        "Numba",
+        "Einops",
+        "scikit-image",
+        "torchvision",
+        "torchaudio",
+        "PytorchLightning",
+        "Triton",
+        "Streamlit",
+        "mypy",
+        "Hypothesis"
+      ]
+    },
+    {
+      "group": "Infrastructure and platform extensions",
+      "tier": 2,
+      "docsets": [
+        "Ansible",
+        "Kubernetes",
+        "Terraform",
+        "HAProxy",
+        "Conda",
+        "OpenCL",
+        "LLVM",
+        "Clang",
+        "GDB",
+        "GNU Coreutils",
+        "Dockerfile",
+        "YAML",
+        "jq",
+        "Crontab",
+        "tmux",
+        "GitHub Security and code quality"
+      ]
+    },
+    {
+      "group": "Agent development & UI extensions",
+      "tier": 2,
+      "docsets": [
+        "NodeJS",
+        "tsdoc",
+        "Chrome Extensions API",
+        "WebExtensions",
+        "Claude Code",
+        "llm",
+        "D3JS",
+        "Chart.js",
+        "ECharts",
+        "Three.js",
+        "Cesium",
+        "PlantUML",
+        "Leaflet",
+        "GraphQL Specification"
+      ]
+    },
+    {
+      "group": "Speech, rendering, CAD & GSM adjacent",
+      "tier": 3,
+      "docsets": [
+        "GStreamer",
+        "librosa",
+        "SpeechBrain",
+        "Blender",
+        "Blender Python API",
+        "OpenSCAD",
+        "Vulkan",
+        "OpenGL 4",
+        "OpenGL GLSL",
+        "pyqtgraph",
+        "Ghidra",
+        "pwntools",
+        "Android (Kotlin)",
+        "Arduino"
+      ]
+    },
+    {
+      "group": "Research and exploration",
+      "tier": 3,
+      "docsets": [
+        "NLTK",
+        "gensim",
+        "PyTorch-Geometric",
+        "kornia",
+        "Nvidia Warp",
+        "Dask",
+        "Cython",
+        "TensorFlow 2"
+      ]
+    }
+  ],
+  "custom_documentation": [
+    {
+      "name": "FastAPI",
+      "url": "https://fastapi.tiangolo.com/",
+      "use_case": "Backend core"
+    },
+    {
+      "name": "HTMX",
+      "url": "https://htmx.org/docs/",
+      "use_case": "Web UI core"
+    },
+    {
+      "name": "Pydantic 2",
+      "url": "https://docs.pydantic.dev/",
+      "use_case": "Backend validation"
+    },
+    {
+      "name": "Starlette",
+      "url": "https://www.starlette.io/",
+      "use_case": "ASGI integration"
+    },
+    {
+      "name": "MCP specification and official SDK",
+      "url": "https://modelcontextprotocol.io/",
+      "use_case": "Agent integration"
+    },
+    {
+      "name": "Pi Agent",
+      "url": "https://github.com/badlogic/pi-mono",
+      "use_case": "Agent runtime"
+    },
+    {
+      "name": "llama.cpp",
+      "url": "https://github.com/ggml-org/llama.cpp",
+      "use_case": "Local LLM inference"
+    },
+    {
+      "name": "Strata",
+      "url": "https://github.com/Niko1221/Strata",
+      "use_case": "LLM server"
+    },
+    {
+      "name": "ONNX",
+      "url": "https://onnx.ai/",
+      "use_case": "Model representation"
+    },
+    {
+      "name": "ONNX Runtime",
+      "url": "https://onnxruntime.ai/docs/",
+      "use_case": "ONNX CUDA/CPU execution"
+    },
+    {
+      "name": "TensorRT",
+      "url": "https://docs.nvidia.com/deeplearning/tensorrt/",
+      "use_case": "GPU inference"
+    },
+    {
+      "name": "ComfyUI",
+      "url": "https://docs.comfy.org/",
+      "use_case": "Node extensions"
+    },
+    {
+      "name": "CatBoost",
+      "url": "https://catboost.ai/docs/en/",
+      "use_case": "Trading ML"
+    },
+    {
+      "name": "Moirai 2 / uni2ts",
+      "url": "https://github.com/SalesforceAIResearch/uni2ts",
+      "use_case": "Time series models"
+    },
+    {
+      "name": "Qdrant",
+      "url": "https://qdrant.tech/documentation/",
+      "use_case": "Vector search"
+    },
+    {
+      "name": "Meilisearch",
+      "url": "https://www.meilisearch.com/docs",
+      "use_case": "Product search"
+    },
+    {
+      "name": "SeaweedFS",
+      "url": "https://github.com/seaweedfs/seaweedfs",
+      "use_case": "Object storage"
+    },
+    {
+      "name": "Valkey",
+      "url": "https://valkey.io/",
+      "use_case": "Redis-like cache"
+    },
+    {
+      "name": "FreeCAD",
+      "url": "https://freecad.org/features.php",
+      "use_case": "3D CAD"
+    },
+    {
+      "name": "OrcaSlicer",
+      "url": "https://github.com/SoftFever/OrcaSlicer",
+      "use_case": "3D printing"
+    },
+    {
+      "name": "PySerial",
+      "url": "https://pyserial.readthedocs.io/",
+      "use_case": "GSM modem serial"
+    },
+    {
+      "name": "3GPP AT command standards",
+      "url": "https://www.3gpp.org/",
+      "use_case": "GSM modem commands"
+    },
+    {
+      "name": "LivePortrait",
+      "url": "https://github.com/KwaiVGI/LivePortrait",
+      "use_case": "Portrait animation"
+    },
+    {
+      "name": "Graphiti",
+      "url": "https://github.com/getzep/graphiti",
+      "use_case": "Graph memory reference"
+    }
+  ],
+  "description": "Cumulative presets for general developer workflows, agent development, AI/ML, infrastructure, visualization, and systems tools."
+}

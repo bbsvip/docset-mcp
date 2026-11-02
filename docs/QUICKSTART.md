@@ -32,6 +32,9 @@ Alternatively, run `.\setup.ps1` or `.\setup.ps1 -RegisterPi`. Python 3.11+ is r
 python source/app.py catalog sync
 python source/app.py catalog list --query Python
 python source/app.py installed
+python source/app.py profile list
+python source/app.py profile preview --tier core
+python source/app.py profile install --tier core --workers 3 --delay 1 --skip-fts
 python source/app.py download Python_3
 python source/app.py download --all --dry-run
 python source/app.py download --all --max-items 20 --workers 2 --delay 2
@@ -49,6 +52,8 @@ python source/app.py serve-http --host 127.0.0.1 --port 8765
 ```
 
 The `read` reference above illustrates the format used by search results; use **the actual `ref` returned by your installation**, rather than assuming a symbol maps to a particular HTML path.
+
+See [Curated documentation profiles](PROFILES.md) for opt-in Core / Extended / Full bundles, download acceleration, FTS5 tradeoffs, and retries.
 
 ### Download options
 

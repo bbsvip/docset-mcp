@@ -54,6 +54,23 @@ docker compose run --rm mcp download --all --workers 2 --delay 2
 
 Check the `complete_catalog` field in the dry-run output. If it is `false`, the server is using a smaller fallback catalog and **does not cover every known docset**.
 
+### Curated Core / Extended / Full profiles
+
+For faster, smaller installations, use the built-in opt-in presets:
+
+```bash
+docker compose run --rm mcp profile preview --tier core
+docker compose run --rm mcp profile install --tier core --workers 3 --delay 1 --skip-fts
+# Optional: expand cumulatively without re-downloading installed items.
+docker compose run --rm mcp profile install --tier extended --workers 3 --delay 1 --skip-fts
+# Build FTS5 later to maximize download throughput.
+docker compose run --rm mcp index-content --all --missing-only
+```
+
+`--skip-fts` affects the one-shot downloader only and does not disable FTS5
+in a separately running MCP server. See [PROFILES.md](PROFILES.md) for counts,
+exact commands, startup behavior, retries, and how to write custom presets.
+
 ### Background downloader
 
 ```bash

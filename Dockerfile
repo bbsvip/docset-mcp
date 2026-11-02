@@ -15,6 +15,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt \
     && chown 10001:10001 /data
 
 COPY source/ ./source/
+COPY profiles/ ./profiles/
 
 USER 10001:10001
 VOLUME ["/data"]

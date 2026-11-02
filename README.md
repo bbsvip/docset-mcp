@@ -9,7 +9,7 @@ Docset Agent MCP is a standalone [Model Context Protocol (MCP)](https://modelcon
 ## Highlights
 
 - **No Dash, Zeal, Node.js, or host-side Python required** when running with Docker.
-- Discover and download a single docset or **the entire upstream catalog** (with rate limiting and resumable downloads).
+- Discover and download a single docset, the **entire upstream catalog**, or curated **Core / Extended / Full profiles** (with rate limiting and resumable downloads).
 - Search API symbols offline through SQLite; read an individual HTML page or section with a bounded response length.
 - Automatic SQLite **FTS5** indexing/search after installation (configurable; not semantic search).
 - **On-demand installation** when an agent searches an explicitly named missing docset.
@@ -57,6 +57,35 @@ pi mcp list
 
 For another MCP client, add a **Streamable HTTP** connection pointing to the same URL. If your client supports only stdio, see [Docker stdio mode](docs/DOCKER.md#stdio-mode-no-http-port).
 
+### Download a curated profile quickly (54 / 112 / 134 docsets)
+
+Profiles are **opt-in**; starting the MCP server does not download them.
+A built-in `developer-ai` profile covers backend, AI/ML, DevOps, agent development,
+computer vision, and other developer documentation. Tiers are cumulative.
+
+```bash
+# Refresh catalog, then inspect profile contents and missing docsets.
+docker compose run --rm mcp catalog sync
+docker compose run --rm mcp profile list
+docker compose run --rm mcp profile preview --tier core
+
+# Fast core install: three concurrent downloads and deferred full-text indexing.
+docker compose run --rm mcp profile install --tier core --workers 3 --delay 1 --skip-fts
+
+# Optional: expand to 112 or 134 items; installed docsets are skipped.
+docker compose run --rm mcp profile install --tier extended --workers 3 --delay 1 --skip-fts
+# docker compose run --rm mcp profile install --tier full --workers 3 --delay 1 --skip-fts
+
+# Build missing full-text indexes after downloading (optional).
+docker compose run --rm mcp index-content --all --missing-only
+```
+
+`--skip-fts` still builds the symbol index, so agent symbol searches work immediately.
+Full-text searches need FTS5, which can be built later or on demand. Results show
+`matched`, `unmatched`, and `complete_catalog`: the available upstream catalog may
+not contain every selected title. For details, performance tradeoffs, retry rules,
+and authoring custom profiles, see [Curated profiles](docs/PROFILES.md).
+
 ### Download the full catalog (optional)
 
 **Warning:** The complete library can consume a very large amount of disk space and network bandwidth. Verify your storage capacity and your right to download the content first.
@@ -72,7 +101,7 @@ docker compose logs -f downloader
 
 Re-run the downloader after interruptions; installed docsets are skipped unless you specify `--update`. To rebuild symbol indexes for already-downloaded docsets without downloading again, run `docker compose run --rm mcp reindex --all --failed-only`. The downloaded files, catalog, indexes, and logs are stored in the Docker volume **`docset-agent-mcp-data`**, not in the image.
 
-**Changes and upgrades:** [Changelog](CHANGELOG.md). **More detailed setup:** [Docker guide](docs/DOCKER.md) · [Quick-start and CLI guide](docs/QUICKSTART.md) · [Agent prompt and usage guidance](docs/AGENT_PROMPT.md)
+**Changes and upgrades:** [Changelog](CHANGELOG.md). **More detailed setup:** [Docker guide](docs/DOCKER.md) · [Curated profiles](docs/PROFILES.md) · [Quick-start and CLI guide](docs/QUICKSTART.md) · [Agent prompt and usage guidance](docs/AGENT_PROMPT.md)
 
 ## Automatic documentation management (enabled in Docker Compose)
 

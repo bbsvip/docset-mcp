@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Curated documentation profiles
+
+### Added
+
+- Built-in `developer-ai` Core (54), Extended (112) and Full (134) cumulative docset selections.
+- `profile list`, `profile preview`, and `profile install` CLI commands, with safe name matching, progress output, resumable installs and explicit retry/repair behavior.
+- `--skip-fts` to defer full-text indexing and prioritize initial downloads while retaining symbol search.
+- Bundled profile JSON in the Docker image, English setup guide in `docs/PROFILES.md`, and offline regression tests.
+
+Profiles remain opt-in and are never auto-downloaded on startup.
+
 ## 0.2.0 — Automatic docset management
 
 ### Added

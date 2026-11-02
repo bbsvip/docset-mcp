@@ -18,6 +18,15 @@ def main():
     catalog.add_argument("--query", default="")
     catalog.add_argument("--limit", type=int, default=50)
     commands.add_parser("installed", help="List installed docsets")
+    profile = commands.add_parser("profile", help="List, preview, or install curated documentation profiles")
+    profile.add_argument("action", choices=("list", "preview", "install"))
+    profile.add_argument("--name", default="developer-ai", help="Bundled profile ID")
+    profile.add_argument("--tier", choices=("core", "extended", "full"), default="core")
+    profile.add_argument("--workers", type=int, default=2, help="Concurrent downloads, 1..3")
+    profile.add_argument("--delay", type=float, default=2.0, help="Seconds between download starts")
+    profile.add_argument("--max-items", type=int, default=0, help="Only process first N pending entries")
+    profile.add_argument("--refresh", action="store_true", help="Refresh the cached upstream catalog first")
+    profile.add_argument("--skip-fts", action="store_true", help="Download + symbol index now, defer FTS5")
     download = commands.add_parser("download", help="Download docsets (single or whole catalog)")
     download.add_argument("name", nargs="?", default="")
     download.add_argument("--all", action="store_true")
@@ -57,8 +66,20 @@ def main():
                 parser.error("--port must be between 1 and 65535")
             run_server(transport="streamable-http", host=args.host, port=args.port)
         return
+    if args.command == "profile" and args.action == "list":
+        from profiles import describe_profiles
+        print(json.dumps(describe_profiles(), ensure_ascii=False, indent=2))
+        return
     store = DocsetStore()
-    if args.command == "catalog":
+    if args.command == "profile":
+        from profiles import install_profile
+        output = install_profile(
+            store, name=args.name, tier=args.tier, workers=args.workers,
+            delay=args.delay, max_items=args.max_items, refresh=args.refresh,
+            skip_fts=args.skip_fts, dry_run=args.action == "preview",
+            log=lambda event: print(json.dumps(event, ensure_ascii=False), flush=True),
+        )
+    elif args.command == "catalog":
         output = store.sync_catalog() if args.action == "sync" else store.catalog_search(args.query, args.limit)
     elif args.command == "installed":
         output = store.installed()
@@ -104,7 +125,7 @@ def main():
     else:
         parser.error("Unknown command")
     print(json.dumps(output, ensure_ascii=False, indent=2))
-    if ((args.command == "download" and args.all) or (args.command == "reindex" and args.all) or (args.command == "index-content" and args.all)) and output.get("failed"):
+    if (args.command == "profile" or (args.command == "download" and args.all) or (args.command == "reindex" and args.all) or (args.command == "index-content" and args.all)) and output.get("failed"):
         sys.exit(2)
 
 
