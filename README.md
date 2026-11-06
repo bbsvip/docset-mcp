@@ -21,6 +21,8 @@ Docset Agent MCP is a standalone [Model Context Protocol (MCP)](https://modelcon
 
 **Note:** This project distributes **code only**, not third-party documentation. Upstream docsets have their own usage restrictions. Read [Licensing and upstream usage](#licensing-and-upstream-usage) before downloading or distributing content.
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/bbsvip-docset-mcp-xmbj0s?v=b2786ac508c160aa1f5d01be5ea07a94)](https://m8ven.ai/mcp/bbsvip-docset-mcp-xmbj0s?s=readme)
+
 ## Quick start: Docker Compose
 
 Docker Engine with Compose v2 (or Docker Desktop) is required.
